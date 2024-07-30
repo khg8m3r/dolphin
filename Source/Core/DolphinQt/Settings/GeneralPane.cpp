@@ -15,12 +15,14 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
+#include "Core/AchievementManager.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Config/UISettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/DolphinAnalytics.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/System.h"
 
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
@@ -57,7 +59,7 @@ GeneralPane::GeneralPane(QWidget* parent) : QWidget(parent)
           &GeneralPane::OnEmulationStateChanged);
   connect(&Settings::Instance(), &Settings::ConfigChanged, this, &GeneralPane::LoadConfig);
 
-  OnEmulationStateChanged(Core::GetState());
+  OnEmulationStateChanged(Core::GetState(Core::System::GetInstance()));
 }
 
 void GeneralPane::CreateLayout()
@@ -82,9 +84,10 @@ void GeneralPane::CreateLayout()
 void GeneralPane::OnEmulationStateChanged(Core::State state)
 {
   const bool running = state != Core::State::Uninitialized;
+  const bool hardcore = AchievementManager::GetInstance().IsHardcoreModeActive();
 
   m_checkbox_dualcore->setEnabled(!running);
-  m_checkbox_cheats->setEnabled(!running);
+  m_checkbox_cheats->setEnabled(!running && !hardcore);
   m_checkbox_override_region_settings->setEnabled(!running);
 #ifdef USE_DISCORD_PRESENCE
   m_checkbox_discord_presence->setEnabled(!running);
@@ -105,20 +108,20 @@ void GeneralPane::ConnectLayout()
 
   if (AutoUpdateChecker::SystemSupportsAutoUpdates())
   {
-    connect(m_combobox_update_track, qOverload<int>(&QComboBox::currentIndexChanged), this,
+    connect(m_combobox_update_track, &QComboBox::currentIndexChanged, this,
             &GeneralPane::OnSaveConfig);
     connect(&Settings::Instance(), &Settings::AutoUpdateTrackChanged, this,
             &GeneralPane::LoadConfig);
   }
 
   // Advanced
-  connect(m_combobox_speedlimit, qOverload<int>(&QComboBox::currentIndexChanged), [this]() {
+  connect(m_combobox_speedlimit, &QComboBox::currentIndexChanged, [this]() {
     Config::SetBaseOrCurrent(Config::MAIN_EMULATION_SPEED,
                              m_combobox_speedlimit->currentIndex() * 0.1f);
     Config::Save();
   });
 
-  connect(m_combobox_fallback_region, qOverload<int>(&QComboBox::currentIndexChanged), this,
+  connect(m_combobox_fallback_region, &QComboBox::currentIndexChanged, this,
           &GeneralPane::OnSaveConfig);
   connect(&Settings::Instance(), &Settings::FallbackRegionChanged, this, &GeneralPane::LoadConfig);
 
@@ -137,7 +140,7 @@ void GeneralPane::CreateBasic()
   basic_group->setLayout(basic_group_layout);
   m_main_layout->addWidget(basic_group);
 
-  m_checkbox_dualcore = new QCheckBox(tr("Enable Dual Core (speedup)"));
+  m_checkbox_dualcore = new QCheckBox(tr("Enable Dual Core (speedhack)"));
   basic_group_layout->addWidget(m_checkbox_dualcore);
 
   m_checkbox_cheats = new QCheckBox(tr("Enable Cheats"));
@@ -191,7 +194,7 @@ void GeneralPane::CreateAutoUpdate()
   auto_update_group_layout->addRow(tr("&Auto Update:"), m_combobox_update_track);
 
   for (const QString& option :
-       {tr("Don't Update"), tr("Beta (once a month)"), tr("Dev (multiple times a day)")})
+       {tr("Don't Update"), tr("Releases (every few months)"), tr("Dev (multiple times a day)")})
     m_combobox_update_track->addItem(option);
 }
 

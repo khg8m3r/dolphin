@@ -47,8 +47,9 @@ static bool IsVSyncActive(bool enabled)
 
 void UpdateActiveConfig()
 {
-  if (Movie::IsPlayingInput() && Movie::IsConfigSaved())
-    Movie::SetGraphicsConfig();
+  auto& movie = Core::System::GetInstance().GetMovie();
+  if (movie.IsPlayingInput() && movie.IsConfigSaved())
+    movie.SetGraphicsConfig();
   g_ActiveConfig = g_Config;
   g_ActiveConfig.bVSyncActive = IsVSyncActive(g_ActiveConfig.bVSync);
 }
@@ -65,15 +66,15 @@ void VideoConfig::Refresh()
     CPUThreadConfigCallback::AddConfigChangedCallback([]() {
       auto& system = Core::System::GetInstance();
 
-      const bool lock_gpu_thread = Core::IsRunningAndStarted();
+      const bool lock_gpu_thread = Core::IsRunning(system);
       if (lock_gpu_thread)
-        system.GetFifo().PauseAndLock(system, true, false);
+        system.GetFifo().PauseAndLock(true, false);
 
       g_Config.Refresh();
       g_Config.VerifyValidity();
 
       if (lock_gpu_thread)
-        system.GetFifo().PauseAndLock(system, false, true);
+        system.GetFifo().PauseAndLock(false, true);
     });
     s_has_registered_callback = true;
   }
@@ -85,7 +86,17 @@ void VideoConfig::Refresh()
 
   bWidescreenHack = Config::Get(Config::GFX_WIDESCREEN_HACK);
   aspect_mode = Config::Get(Config::GFX_ASPECT_RATIO);
+  custom_aspect_width = Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_WIDTH);
+  custom_aspect_height = Config::Get(Config::GFX_CUSTOM_ASPECT_RATIO_HEIGHT);
   suggested_aspect_mode = Config::Get(Config::GFX_SUGGESTED_ASPECT_RATIO);
+  widescreen_heuristic_transition_threshold =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_TRANSITION_THRESHOLD);
+  widescreen_heuristic_aspect_ratio_slop =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_ASPECT_RATIO_SLOP);
+  widescreen_heuristic_standard_ratio =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_STANDARD_RATIO);
+  widescreen_heuristic_widescreen_ratio =
+      Config::Get(Config::GFX_WIDESCREEN_HEURISTIC_WIDESCREEN_RATIO);
   bCrop = Config::Get(Config::GFX_CROP);
   iSafeTextureCache_ColorSamples = Config::Get(Config::GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES);
   bShowFPS = Config::Get(Config::GFX_SHOW_FPS);
@@ -117,7 +128,7 @@ void VideoConfig::Refresh()
   sDumpEncoder = Config::Get(Config::GFX_DUMP_ENCODER);
   sDumpPath = Config::Get(Config::GFX_DUMP_PATH);
   iBitrateKbps = Config::Get(Config::GFX_BITRATE_KBPS);
-  bInternalResolutionFrameDumps = Config::Get(Config::GFX_INTERNAL_RESOLUTION_FRAME_DUMPS);
+  frame_dumps_resolution_type = Config::Get(Config::GFX_FRAME_DUMPS_RESOLUTION_TYPE);
   bEnableGPUTextureDecoding = Config::Get(Config::GFX_ENABLE_GPU_TEXTURE_DECODING);
   bPreferVSForLinePointExpansion = Config::Get(Config::GFX_PREFER_VS_FOR_LINE_POINT_EXPANSION);
   bEnablePixelLighting = Config::Get(Config::GFX_ENABLE_PIXEL_LIGHTING);
@@ -279,6 +290,7 @@ void CheckForConfigChanges()
   const u32 old_game_mod_changes =
       g_ActiveConfig.graphics_mod_config ? g_ActiveConfig.graphics_mod_config->GetChangeCount() : 0;
   const bool old_graphics_mods_enabled = g_ActiveConfig.bGraphicMods;
+  const AspectMode old_aspect_mode = g_ActiveConfig.aspect_mode;
   const AspectMode old_suggested_aspect_mode = g_ActiveConfig.suggested_aspect_mode;
   const bool old_widescreen_hack = g_ActiveConfig.bWidescreenHack;
   const auto old_post_processing_shader = g_ActiveConfig.sPostProcessingShader;
@@ -328,6 +340,8 @@ void CheckForConfigChanges()
     changed_bits |= CONFIG_CHANGE_BIT_BBOX;
   if (old_efb_scale != g_ActiveConfig.iEFBScale)
     changed_bits |= CONFIG_CHANGE_BIT_TARGET_SIZE;
+  if (old_aspect_mode != g_ActiveConfig.aspect_mode)
+    changed_bits |= CONFIG_CHANGE_BIT_ASPECT_RATIO;
   if (old_suggested_aspect_mode != g_ActiveConfig.suggested_aspect_mode)
     changed_bits |= CONFIG_CHANGE_BIT_ASPECT_RATIO;
   if (old_widescreen_hack != g_ActiveConfig.bWidescreenHack)
@@ -361,6 +375,7 @@ void CheckForConfigChanges()
   if (changed_bits & (CONFIG_CHANGE_BIT_HOST_CONFIG | CONFIG_CHANGE_BIT_MULTISAMPLES))
   {
     OSD::AddMessage("Video config changed, reloading shaders.", OSD::Duration::NORMAL);
+    g_gfx->WaitForGPUIdle();
     g_vertex_manager->InvalidatePipelineObject();
     g_vertex_manager->NotifyCustomShaderCacheOfHostChange(new_host_config);
     g_shader_cache->SetHostConfig(new_host_config);
@@ -380,5 +395,5 @@ void CheckForConfigChanges()
   // TODO: Move everything else to the ConfigChanged event
 }
 
-static Common::EventHook s_check_config_event =
-    AfterFrameEvent::Register([] { CheckForConfigChanges(); }, "CheckForConfigChanges");
+static Common::EventHook s_check_config_event = AfterFrameEvent::Register(
+    [](Core::System&) { CheckForConfigChanges(); }, "CheckForConfigChanges");

@@ -12,6 +12,7 @@ static JavaVM* s_java_vm;
 static jclass s_string_class;
 
 static jclass s_native_library_class;
+static jmethodID s_display_toast_msg;
 static jmethodID s_display_alert_msg;
 static jmethodID s_update_touch_pointer;
 static jmethodID s_on_title_changed;
@@ -35,12 +36,6 @@ static jmethodID s_linked_hash_map_put;
 static jclass s_hash_map_class;
 static jmethodID s_hash_map_init;
 static jmethodID s_hash_map_put;
-
-static jclass s_ini_file_class;
-static jfieldID s_ini_file_pointer;
-static jclass s_ini_file_section_class;
-static jfieldID s_ini_file_section_pointer;
-static jmethodID s_ini_file_section_constructor;
 
 static jclass s_compress_cb_class;
 static jmethodID s_compress_cb_run;
@@ -115,6 +110,8 @@ static jclass s_core_device_control_class;
 static jfieldID s_core_device_control_pointer;
 static jmethodID s_core_device_control_constructor;
 
+static jmethodID s_runnable_run;
+
 namespace IDCache
 {
 JNIEnv* GetEnvForThread()
@@ -148,6 +145,11 @@ jclass GetStringClass()
 jclass GetNativeLibraryClass()
 {
   return s_native_library_class;
+}
+
+jmethodID GetDisplayToastMsg()
+{
+  return s_display_toast_msg;
 }
 
 jmethodID GetDisplayAlertMsg()
@@ -238,31 +240,6 @@ jmethodID GetHashMapInit()
 jmethodID GetHashMapPut()
 {
   return s_hash_map_put;
-}
-
-jclass GetIniFileClass()
-{
-  return s_ini_file_class;
-}
-
-jfieldID GetIniFilePointer()
-{
-  return s_ini_file_pointer;
-}
-
-jclass GetIniFileSectionClass()
-{
-  return s_ini_file_section_class;
-}
-
-jfieldID GetIniFileSectionPointer()
-{
-  return s_ini_file_section_pointer;
-}
-
-jmethodID GetIniFileSectionConstructor()
-{
-  return s_ini_file_section_constructor;
 }
 
 jclass GetCompressCallbackClass()
@@ -535,6 +512,11 @@ jmethodID GetCoreDeviceControlConstructor()
   return s_core_device_control_constructor;
 }
 
+jmethodID GetRunnableRun()
+{
+  return s_runnable_run;
+}
+
 }  // namespace IDCache
 
 extern "C" {
@@ -552,6 +534,8 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
 
   const jclass native_library_class = env->FindClass("org/dolphinemu/dolphinemu/NativeLibrary");
   s_native_library_class = reinterpret_cast<jclass>(env->NewGlobalRef(native_library_class));
+  s_display_toast_msg =
+      env->GetStaticMethodID(s_native_library_class, "displayToastMsg", "(Ljava/lang/String;Z)V");
   s_display_alert_msg = env->GetStaticMethodID(s_native_library_class, "displayAlertMsg",
                                                "(Ljava/lang/String;Ljava/lang/String;ZZZ)Z");
   s_update_touch_pointer =
@@ -580,19 +564,6 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
   s_get_analytics_value = env->GetStaticMethodID(s_analytics_class, "getValue",
                                                  "(Ljava/lang/String;)Ljava/lang/String;");
   env->DeleteLocalRef(analytics_class);
-
-  const jclass ini_file_class = env->FindClass("org/dolphinemu/dolphinemu/utils/IniFile");
-  s_ini_file_class = reinterpret_cast<jclass>(env->NewGlobalRef(ini_file_class));
-  s_ini_file_pointer = env->GetFieldID(ini_file_class, "mPointer", "J");
-  env->DeleteLocalRef(ini_file_class);
-
-  const jclass ini_file_section_class =
-      env->FindClass("org/dolphinemu/dolphinemu/utils/IniFile$Section");
-  s_ini_file_section_class = reinterpret_cast<jclass>(env->NewGlobalRef(ini_file_section_class));
-  s_ini_file_section_pointer = env->GetFieldID(ini_file_section_class, "mPointer", "J");
-  s_ini_file_section_constructor = env->GetMethodID(
-      ini_file_section_class, "<init>", "(Lorg/dolphinemu/dolphinemu/utils/IniFile;J)V");
-  env->DeleteLocalRef(ini_file_section_class);
 
   const jclass linked_hash_map_class = env->FindClass("java/util/LinkedHashMap");
   s_linked_hash_map_class = reinterpret_cast<jclass>(env->NewGlobalRef(linked_hash_map_class));
@@ -753,6 +724,10 @@ JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void* reserved)
                        "(Lorg/dolphinemu/dolphinemu/features/input/model/CoreDevice;J)V");
   env->DeleteLocalRef(core_device_control_class);
 
+  const jclass runnable_class = env->FindClass("java/lang/Runnable");
+  s_runnable_run = env->GetMethodID(runnable_class, "run", "()V");
+  env->DeleteLocalRef(runnable_class);
+
   return JNI_VERSION;
 }
 
@@ -768,8 +743,6 @@ JNIEXPORT void JNI_OnUnload(JavaVM* vm, void* reserved)
   env->DeleteGlobalRef(s_analytics_class);
   env->DeleteGlobalRef(s_linked_hash_map_class);
   env->DeleteGlobalRef(s_hash_map_class);
-  env->DeleteGlobalRef(s_ini_file_class);
-  env->DeleteGlobalRef(s_ini_file_section_class);
   env->DeleteGlobalRef(s_compress_cb_class);
   env->DeleteGlobalRef(s_content_handler_class);
   env->DeleteGlobalRef(s_network_helper_class);
